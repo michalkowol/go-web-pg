@@ -7,21 +7,9 @@ import (
 	"log"
 	"net/http"
 	"encoding/json"
+	"github.com/michalkowol/web-pg/server/domain"
+	"github.com/michalkowol/web-pg/server/repository"
 )
-
-type Person struct {
-	Id   int `json:"id"`
-	Name string `json:"name"`
-	Age  int `json:"age"`
-}
-
-func (p Person) String() string {
-	return fmt.Sprintf("[id=%v, name=%v, age=%v]", p.Id, p.Name, p.Age)
-}
-
-func (p Person) Smt() int {
-	return p.Age * 2
-}
 
 func initDatabse() (*sql.DB, error) {
 	db, err := sql.Open("postgres", "user=yourcode dbname=yourcode sslmode=disable")
@@ -31,8 +19,8 @@ func initDatabse() (*sql.DB, error) {
 	return db, err
 }
 
-func findPerson(minAge int, db *sql.DB) (*Person, error) {
-	var person Person
+func findPerson(minAge int, db *sql.DB) (*domain.Person, error) {
+	var person domain.Person
 	err := db.QueryRow("SELECT id, name, age FROM people WHERE age > $1", minAge).Scan(&person.Id, &person.Name, &person.Age)
 	if err != nil {
 		return nil, err
@@ -41,7 +29,7 @@ func findPerson(minAge int, db *sql.DB) (*Person, error) {
 }
 
 func listPeopleHandler(w http.ResponseWriter, r *http.Request) {
-	people := []Person{Person{Id: 1, Name: "Michal", Age: 26}, Person{Id: 1, Name: "Michal", Age: 26}}
+	people := []domain.Person{domain.Person{Id: 1, Name: "Michal", Age: 26}, domain.Person{Id: 1, Name: "Michal", Age: 26}}
 	json, err := json.Marshal(people)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -51,25 +39,9 @@ func listPeopleHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(json)
 }
 
-func listPeople(db *sql.DB) ([]Person, error) {
-	people := []Person{}
-	rows, err := db.Query("SELECT id, name, age FROM people")
-	if err != nil {
-		return nil, err
-	}
-	for rows.Next() {
-		var person Person
-		err = rows.Scan(&person.Id, &person.Name, &person.Age)
-		if err != nil {
-			return nil, err
-		}
-		people = append(people, person)
-	}
-	return people, err
-}
-
 func listDbPeopleHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
-	people, err := listPeople(db)
+	peopleRepo := repository.PeopleRepository{DB: db}
+	people, err := peopleRepo.ListWithDetails()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -96,7 +68,7 @@ func makeHandlerClosure(db *sql.DB) func(func(http.ResponseWriter, *http.Request
 }
 
 func startServer(db *sql.DB) {
-	log.Println("Start listening on port :8080")
+	log.Println("Bound to 0.0.0.0:8080")
 	makeHandler := makeHandlerClosure(db)
 	http.HandleFunc("/people", makeHandler(listDbPeopleHandler))
 	http.HandleFunc("/peopleStatic", listPeopleHandler)
@@ -112,7 +84,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var person *Person
+	var person *domain.Person
 	person, err = findPerson(26, db)
 	if err != nil {
 		log.Fatal(err)
@@ -120,8 +92,8 @@ func main() {
 	fmt.Println(person)
 	fmt.Println(person.Smt())
 
-	var people []Person
-	people, err = listPeople(db)
+	var people []domain.Person
+	people, err = repository.PeopleRepository{DB: db}.List()
 	if err != nil {
 		log.Fatal(err)
 	}
